@@ -3,6 +3,7 @@ use dotenvy::dotenv; // To load the .env file
 use serde_json::json;
 use std::env; // To read environment variables
 use clap::Parser; // For using the CLI as interface
+use termimad::print_text; // For displaying markdown instead of plain text
 
 /// A CLI tool to interact with a local vLLM server
 #[derive(Parser, Debug)]
@@ -59,7 +60,7 @@ async fn main() -> Result<(), reqwest::Error> {
         "messages": [
             {
                 "role": "system",
-                "content": "You are a helpful and concise assistant."
+                "content": "You are a helpful and concise assistant. You can use markdown for formatting your answer."
             },
             {
                 "role": "user",
@@ -67,7 +68,7 @@ async fn main() -> Result<(), reqwest::Error> {
             }
         ],
         "temperature": 0.7,
-        "max_tokens": 256
+        "max_tokens": 512
     });
 
     println!("🚀 Sending request...");
@@ -91,7 +92,7 @@ async fn main() -> Result<(), reqwest::Error> {
         
         // Instead of printing the whole blob, we navigate our struct
         if let Some(first_choice) = response_body.choices.get(0) {
-            println!("{}", first_choice.message.content.trim());
+            print_text(first_choice.message.content.trim());
         } else {
             println!("No choices found in the response.");
         }
