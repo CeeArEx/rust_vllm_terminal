@@ -18,6 +18,7 @@ struct Cli {
 #[derive(Deserialize, Debug)]
 struct ApiResponse {
     choices: Vec<Choice>,
+    usage: Usage,
 }
 
 #[derive(Deserialize, Debug)]
@@ -28,6 +29,13 @@ struct Choice {
 #[derive(Deserialize, Debug)]
 struct Message {
     content: String,
+}
+
+#[derive(Deserialize, Debug)] 
+struct Usage {
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    total_tokens: u32,
 }
 
 #[tokio::main]
@@ -58,8 +66,8 @@ async fn main() -> Result<(), reqwest::Error> {
                 "content": cli.prompt
             }
         ],
-        "temperature": 0.3,
-        "max_tokens": 100
+        "temperature": 0.7,
+        "max_tokens": 256
     });
 
     println!("🚀 Sending request...");
@@ -79,7 +87,7 @@ async fn main() -> Result<(), reqwest::Error> {
         // Use the new struct for incoming messages
         let response_body: ApiResponse = response.json().await?;
 
-        println!("\n✅ Success! Server responded:");
+        println!("\n✅ Assistant: ");
         
         // Instead of printing the whole blob, we navigate our struct
         if let Some(first_choice) = response_body.choices.get(0) {
@@ -87,6 +95,14 @@ async fn main() -> Result<(), reqwest::Error> {
         } else {
             println!("No choices found in the response.");
         }
+
+        println!("\n------------------------------------");
+        println!(
+            "📊 Tokens: {} (prompt) + {} (completion) = {} (total)",
+            response_body.usage.prompt_tokens,
+            response_body.usage.completion_tokens,
+            response_body.usage.total_tokens
+        );
 
     } else {
         println!("\n❌ Request failed with status code: {}", response.status());
