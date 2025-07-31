@@ -1,6 +1,24 @@
+use serde::Deserialize;
 use dotenvy::dotenv; // To load the .env file
 use serde_json::json;
 use std::env; // To read environment variables
+
+// This tells Rust to automatically implement the `Deserialize` trait for these structs.
+// It allows them to be created directly from incoming JSON.
+#[derive(Deserialize, Debug)]
+struct ApiResponse {
+    choices: Vec<Choice>,
+}
+
+#[derive(Deserialize, Debug)]
+struct Choice {
+    message: Message,
+}
+
+#[derive(Deserialize, Debug)]
+struct Message {
+    content: String,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), reqwest::Error> {
@@ -46,12 +64,19 @@ async fn main() -> Result<(), reqwest::Error> {
 
     // 5. Check if the request was successful and print the response.
     if response.status().is_success() {
-        // Parse the JSON response body into a generic JSON Value
-        let response_body: serde_json::Value = response.json().await?;
+
+        // Use the new struct for incoming messages
+        let response_body: ApiResponse = response.json().await?;
 
         println!("\n✅ Success! Server responded:");
-        // Use `to_string_pretty` to format the JSON output nicely
-        println!("{}", serde_json::to_string_pretty(&response_body).unwrap());
+        
+        // Instead of printing the whole blob, we navigate our struct
+        if let Some(first_choice) = response_body.choices.get(0) {
+            println!("{}", first_choice.message.content.trim());
+        } else {
+            println!("No choices found in the response.");
+        }
+        
     } else {
         println!("\n❌ Request failed with status code: {}", response.status());
         let error_body = response.text().await?;
