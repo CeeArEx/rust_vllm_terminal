@@ -2,6 +2,16 @@ use serde::Deserialize;
 use dotenvy::dotenv; // To load the .env file
 use serde_json::json;
 use std::env; // To read environment variables
+use clap::Parser; // For using the CLI as interface
+
+/// A CLI tool to interact with a local vLLM server
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    /// The prompt to send to the language model
+    #[arg(short, long)]
+    prompt: String,
+}
 
 // This tells Rust to automatically implement the `Deserialize` trait for these structs.
 // It allows them to be created directly from incoming JSON.
@@ -22,16 +32,19 @@ struct Message {
 
 #[tokio::main]
 async fn main() -> Result<(), reqwest::Error> {
-    // 1. Load environment variables from the .env file
+    // 1. Parse command-line arguments FIRST
+    let cli = Cli::parse();
+
+    // 2. Load environment variables from the .env file
     dotenv().ok(); // This line loads the .env file. .ok() ignores errors if the file doesn't exist.
 
-    // 2. Read the API URL from the environment.
+    // 3. Read the API URL from the environment.
     // .expect() will cause the program to crash if the variable isn't set,
     // which is good for critical configuration like this.
     let api_url = env::var("VLLM_API_URL").expect("VLLM_API_URL must be set in .env file");
     let model_name = env::var("MODEL_NAME").expect("MODEL_NAME must be set in .env file"); 
 
-    // 3. Define the NEW payload for the OpenAI Chat Completions endpoint.
+    // 4. Define the NEW payload for the OpenAI Chat Completions endpoint.
     // Note the structure: it uses a "messages" array with "role" and "content".
     let payload = json!({
         "model": model_name,
@@ -42,18 +55,16 @@ async fn main() -> Result<(), reqwest::Error> {
             },
             {
                 "role": "user",
-                "content": "What is the capital of France?"
+                "content": cli.prompt
             }
         ],
         "temperature": 0.3,
         "max_tokens": 100
     });
 
-    println!("🚀 Sending request to OpenAI-compatible server at {}...", api_url);
-    println!("   Using model: {}", env::var("MODEL_NAME").unwrap()); 
-    println!("   Payload: {}", serde_json::to_string_pretty(&payload).unwrap());
+    println!("🚀 Sending request...");
 
-    // 4. Create an HTTP client and send the POST request.
+    // 5. Create an HTTP client and send the POST request.
     let client = reqwest::Client::new();
     let response = client
         .post(&api_url) 
@@ -62,7 +73,7 @@ async fn main() -> Result<(), reqwest::Error> {
         .await?; // The `.await` pauses execution until the response is received.
                  // The `?` will automatically handle any network errors for us.
 
-    // 5. Check if the request was successful and print the response.
+    // 6. Check if the request was successful and print the response.
     if response.status().is_success() {
 
         // Use the new struct for incoming messages
@@ -76,7 +87,7 @@ async fn main() -> Result<(), reqwest::Error> {
         } else {
             println!("No choices found in the response.");
         }
-        
+
     } else {
         println!("\n❌ Request failed with status code: {}", response.status());
         let error_body = response.text().await?;
