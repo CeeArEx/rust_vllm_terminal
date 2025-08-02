@@ -32,6 +32,7 @@ struct Config {
     min_p: f32,
     top_k: i32,
     presence_penalty: f32,
+    bad_words: Vec<String>,
 }
 
 // This is the template for our config file
@@ -59,6 +60,8 @@ min_p = 0.00
 top_k = 20 
 # presence_penalty - Float that penalizes new tokens based on whether they appear in the prompt and the generated text so far. Values > 1 encourage the model to use new tokens, while values < 1 encourage the model to repeat tokens.
 presence_penalty = 2.0 
+# List of words that are not allowed to be generated. More precisely, only the last token of a corresponding token sequence is not allowed when the next generated token can complete the sequence.
+bad_words = []
 "#;
 
 // This tells Rust to automatically implement the `Deserialize` trait for these structs.
@@ -93,6 +96,63 @@ fn get_config_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
         .join("vllm-cli/config.toml"))
 }
 
+// A reusable function to manage a list of strings
+fn manage_list(list: &mut Vec<String>, theme: &ColorfulTheme, prompt: &str) -> Result<(), Box<dyn std::error::Error>> {
+    'list_menu: loop {
+        // First, display the current list
+        if list.is_empty() {
+            println!("\nThe list is currently empty.");
+        } else {
+            println!("\nCurrent items in the list:");
+            for item in list.iter() {
+                println!("- {}", item);
+            }
+        }
+        
+        let menu_items = &["Add an item", "Remove an item", "Finish editing this list"];
+        let selection = Select::with_theme(theme)
+            .with_prompt(prompt)
+            .items(menu_items)
+            .default(0)
+            .interact()?;
+
+        match selection {
+            0 => { // Add an item
+                let new_item: String = Input::with_theme(theme)
+                    .with_prompt("Enter the new item")
+                    .interact_text()?;
+                if !new_item.trim().is_empty() {
+                    list.push(new_item);
+                }
+            }
+            1 => { // Remove an item
+                if list.is_empty() {
+                    println!("Nothing to remove.");
+                    continue;
+                }
+                // We add a "Cancel" option to our list for the user
+                let mut removable_items = list.clone();
+                removable_items.push("Cancel".to_string());
+
+                let to_remove = Select::with_theme(theme)
+                    .with_prompt("Choose an item to remove")
+                    .items(&removable_items)
+                    .default(0)
+                    .interact()?;
+                
+                // If the user didn't select "Cancel"
+                if to_remove < list.len() {
+                    list.remove(to_remove);
+                }
+            }
+            2 => { // Finish editing
+                break 'list_menu;
+            }
+            _ => unreachable!(),
+        }
+    }
+    Ok(())
+}
 
 // The new and improved interactive wizard function
 fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
@@ -168,7 +228,8 @@ fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
                         format!("2. Min P             : {}", config.min_p),
                         format!("3. Top K             : {}", config.top_k),
                         format!("4. Presence Penalty  : {}", config.presence_penalty),
-                        "5. Return to Main Menu".to_string(),
+                        format!("5. Bad Words List    : [{}]", config.bad_words.join(", ")),
+                        "6. Return to Main Menu".to_string(),
                     ];
 
                     let advanced_selection = Select::with_theme(&theme)
@@ -182,7 +243,11 @@ fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
                         1 => config.min_p = Input::with_theme(&theme).with_prompt("Enter Min P").default(config.min_p).interact()?,
                         2 => config.top_k = Input::with_theme(&theme).with_prompt("Enter Top K (-1 to disable)").default(config.top_k).interact()?,
                         3 => config.presence_penalty = Input::with_theme(&theme).with_prompt("Enter Presence Penalty").default(config.presence_penalty).interact()?,
-                        4 => break 'advanced_menu, 
+                        4 => {
+                            // Call our list management function
+                            manage_list(&mut config.bad_words, &theme, "Manage Bad Words List")?;
+                        },
+                        5 => break 'advanced_menu, 
                         _ => unreachable!(),
                     }
                 }
@@ -287,7 +352,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "top_p": config.top_p,
             "min_p": config.min_p,
             "top_k": config.top_k,
-            "presence_penalty": config.presence_penalty
+            "presence_penalty": config.presence_penalty,
+            "bad_words": &config.bad_words
         });
 
         println!("🚀 Sending request...");
