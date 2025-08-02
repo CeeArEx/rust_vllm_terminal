@@ -3,7 +3,6 @@ use serde_json::json;
 use std::fs;
 use clap::Parser; // For using the CLI as interface
 use termimad::print_text; // For displaying markdown instead of plain text
-use half::f16;
 use dialoguer::{theme::ColorfulTheme, Input, Select, Confirm};
 use std::path::PathBuf;
 
@@ -25,7 +24,7 @@ struct Cli {
 struct Config {
     api_url: String,
     model_name: String,
-    temperature: f16,
+    temperature: f32,
     max_tokens: u16,
     #[serde(default)] // This makes the field optional. If it's missing, it will use the default value (None).
     system_prompt: Option<String>,
@@ -40,8 +39,8 @@ api_url = "http://localhost:8000/v1"
 model_name = "your-model-name-here" # IMPORTANT: Please change this!
 
 # --- LLM Parameters ---
-temperature = 0.2
-max_tokens = 1024
+temperature = 0.7
+max_tokens = 512
 
 # --- Prompts ---
 # The system prompt is optional. You can comment it out with a '#' or delete the line.
@@ -82,7 +81,7 @@ fn get_config_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
 
 
 // The new and improved interactive wizard function
-fn handle_configure() -> Result<(), Box<dyn std::error::Error>> {
+fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
     let config_path = get_config_path()?;
     // Load existing config or create a new default one.
     // This is a bit different from load_config because we want to proceed with a default if it doesn't exist.
@@ -154,19 +153,18 @@ fn handle_configure() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 fs::write(&config_path, toml_string)?;
                 println!("\n✅ Configuration saved successfully at: {}", config_path.display());
-                break;
+                return Ok(true);
             }
             6 => {
                 // Exit without saving
                 if Confirm::with_theme(&theme).with_prompt("Are you sure you want to exit without saving?").interact()? {
                     println!("Configuration changes discarded.");
-                    break;
+                    return Ok(false);
                 }
             }
             _ => unreachable!(),
         }
     }
-    Ok(())
 }
 
 
@@ -191,11 +189,12 @@ fn load_config() -> Result<Config, Box<dyn std::error::Error>> {
         fs::write(&config_path, DEFAULT_CONFIG)?;
 
         // Return a user-friendly error telling them what to do next
-        let error_message = format!(
-            "A default configuration file has been created at:\n{}\nPlease run `vllm-cli --configure` to set it up.",
-            config_path.display()
-        );
-        return Err(error_message.into());
+        println!("Please configure your settings..");
+        let saved = handle_configure()?;
+
+        if !saved {
+            return Err("Configuration aborted. Please run `--configure` to set up the tool.".into());
+        }
     }
 
     let config_content = fs::read_to_string(config_path)?;
