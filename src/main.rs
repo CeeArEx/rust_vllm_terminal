@@ -28,6 +28,10 @@ struct Config {
     max_tokens: u16,
     #[serde(default)] // This makes the field optional. If it's missing, it will use the default value (None).
     system_prompt: Option<String>,
+    top_p: f32,
+    min_p: f32,
+    top_k: i32,
+    presence_penalty: f32,
 }
 
 // This is the template for our config file
@@ -45,6 +49,16 @@ max_tokens = 512
 # --- Prompts ---
 # The system prompt is optional. You can comment it out with a '#' or delete the line.
 system_prompt = "You are a helpful and concise assistant."
+
+# --- Advanced Parameters ---
+# top_p - Float that controls the cumulative probability of the top tokens to consider. Must be in (0, 1]. Set to 1 to consider all tokens.
+top_p = 0.80
+# min_p - Float that represents the minimum probability for a token to be considered, relative to the probability of the most likely token. Must be in [0, 1]. Set to 0 to disable this.
+min_p = 0.00 
+# top_k - Integer that controls the number of top tokens to consider. Set to -1 to consider all tokens.
+top_k = 20 
+# presence_penalty - Float that penalizes new tokens based on whether they appear in the prompt and the generated text so far. Values > 1 encourage the model to use new tokens, while values < 1 encourage the model to repeat tokens.
+presence_penalty = 2.0 
 "#;
 
 // This tells Rust to automatically implement the `Deserialize` trait for these structs.
@@ -101,8 +115,9 @@ fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
             format!("3. Temperature  : {}", config.temperature),
             format!("4. Max Tokens   : {}", config.max_tokens),
             format!("5. System Prompt: {}", config.system_prompt.as_deref().unwrap_or("Not set")),
-            "6. Save and Exit".to_string(),       // Converted to String
-            "7. Exit Without Saving".to_string(), // Converted to String
+            "6. Advanced Options...".to_string(),
+            "7. Save and Exit".to_string(),    
+            "8. Exit Without Saving".to_string(),
         ];
 
         let selection = Select::with_theme(&theme)
@@ -145,7 +160,34 @@ fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
                     config.system_prompt = if new_prompt.is_empty() { None } else { Some(new_prompt) };
                 }
             }
-            5 => {
+            // Handle the Advanced Options selection
+            5 => { 
+                'advanced_menu: loop { 
+                    let advanced_items = &[
+                        format!("1. Top P             : {}", config.top_p),
+                        format!("2. Min P             : {}", config.min_p),
+                        format!("3. Top K             : {}", config.top_k),
+                        format!("4. Presence Penalty  : {}", config.presence_penalty),
+                        "5. Return to Main Menu".to_string(),
+                    ];
+
+                    let advanced_selection = Select::with_theme(&theme)
+                        .with_prompt("Advanced Options")
+                        .items(advanced_items)
+                        .default(0)
+                        .interact()?;
+
+                    match advanced_selection {
+                        0 => config.top_p = Input::with_theme(&theme).with_prompt("Enter Top P").default(config.top_p).interact()?,
+                        1 => config.min_p = Input::with_theme(&theme).with_prompt("Enter Min P").default(config.min_p).interact()?,
+                        2 => config.top_k = Input::with_theme(&theme).with_prompt("Enter Top K (-1 to disable)").default(config.top_k).interact()?,
+                        3 => config.presence_penalty = Input::with_theme(&theme).with_prompt("Enter Presence Penalty").default(config.presence_penalty).interact()?,
+                        4 => break 'advanced_menu, 
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            6 => {
                 // Save and exit
                 let toml_string = toml::to_string(&config)?;
                 if let Some(parent_dir) = config_path.parent() {
@@ -155,7 +197,7 @@ fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
                 println!("\n✅ Configuration saved successfully at: {}", config_path.display());
                 return Ok(true);
             }
-            6 => {
+            7 => {
                 // Exit without saving
                 if Confirm::with_theme(&theme).with_prompt("Are you sure you want to exit without saving?").interact()? {
                     println!("Configuration changes discarded.");
@@ -241,7 +283,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "model": &config.model_name,
             "messages": messages,
             "temperature": config.temperature,
-            "max_tokens": config.max_tokens
+            "max_tokens": config.max_tokens,
+            "top_p": config.top_p,
+            "min_p": config.min_p,
+            "top_k": config.top_k,
+            "presence_penalty": config.presence_penalty
         });
 
         println!("🚀 Sending request...");
