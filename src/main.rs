@@ -473,8 +473,6 @@ async fn send_api_request(config: &Config, messages: &[Message]) -> Result<Messa
         "bad_words": &config.bad_words
     });
 
-    println!("\n🚀 Sending request to model...");
-
     let api_endpoint = format!("{}/chat/completions", config.api_url.trim_end_matches('/'));
     let client = reqwest::Client::new();
     let response = client.post(&api_endpoint).json(&payload).send().await?;
