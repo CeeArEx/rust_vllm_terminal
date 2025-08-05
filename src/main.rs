@@ -406,6 +406,7 @@ async fn handle_chat_mode(config: &Config) -> Result<(), Box<dyn std::error::Err
                 
                 let new_session = ChatSession { messages };
                 println!("Starting a new chat. Your conversation will be saved to: {}", session_path.display());
+                println!("Write !quit to exit.");
                 break (new_session, session_path);
             }
             _ => { // User chose an existing chat
@@ -413,13 +414,14 @@ async fn handle_chat_mode(config: &Config) -> Result<(), Box<dyn std::error::Err
                 let file_content = fs::read_to_string(&path)?;
                 let session: ChatSession = serde_json::from_str(&file_content)?;
                 println!("\n📜 Resuming chat from: {}", path.display());
+                println!("Write !quit to exit.");
                 // Display the previous messages to give the user context.
                 for message in &session.messages {
                      if message.role == "assistant" {
-                        println!("\n✅ Assistant:");
+                        println!("\nAssistant:");
                         print_text(message.content.trim());
                     } else if message.role == "user" {
-                        println!("\n\n👤 You: {}", message.content.trim());
+                        println!("\n\n: {}", message.content.trim());
                     }
                 }
                 println!("\n"); // Add a newline for spacing
@@ -431,7 +433,7 @@ async fn handle_chat_mode(config: &Config) -> Result<(), Box<dyn std::error::Err
     // Main interactive chat loop
     loop {
         let user_input: String = Input::with_theme(&theme)
-            .with_prompt("Your message (!quit to exit)")
+            .with_prompt(":")
             .interact_text()?;
 
         if user_input.trim() == "!quit" || user_input.trim() == "!exit" {
@@ -448,7 +450,7 @@ async fn handle_chat_mode(config: &Config) -> Result<(), Box<dyn std::error::Err
         // The API call is now made with the entire history.
         let response_message = send_api_request(config, &session.messages).await?;
         
-        println!("\n✅ Assistant:");
+        println!("\nAssistant:");
         print_text(response_message.content.trim());
         println!("\n"); // Add a newline for better spacing in the loop.
 
@@ -528,7 +530,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         match send_api_request(&config, &messages).await {
             Ok(response_message) => {
-                println!("\n✅ Assistant: ");
+                println!("\nAssistant: ");
                 print_text(response_message.content.trim());
                 println!();
             }
