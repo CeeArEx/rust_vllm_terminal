@@ -15,7 +15,7 @@ use chrono::Local; // For generating timestamps for chat filenames.
 #[clap(group(
     clap::ArgGroup::new("mode")
         .required(false) // No mode is required, so the help message is shown by default.
-        .args(&["prompt", "chat"]),
+        .args(&["prompt", "chat", "configure", "manage_chats"]),
 ))]
 struct Cli {
     /// The prompt to send to the language model (single-shot mode)
@@ -29,6 +29,10 @@ struct Cli {
     /// Runs an interactive wizard to create or update the config file
     #[arg(long, default_value_t = false)]
     configure: bool,
+
+    /// Opens a menu to manage saved chat sessions
+    #[arg(long, default_value_t = false)]
+    manage_chats: bool,
 }
 
 // Blueprint for our config.toml file
@@ -147,6 +151,99 @@ fn load_chat_sessions() -> Result<Vec<(PathBuf, String)>, Box<dyn std::error::Er
     // Sort sessions chronologically based on their filenames.
     sessions.sort_by(|a, b| a.1.cmp(&b.1));
     Ok(sessions)
+}
+
+// A function for handling all chat management tasks.
+fn handle_chat_management() -> Result<(), Box<dyn std::error::Error>> {
+    let theme = ColorfulTheme::default();
+
+    // The main loop for the management menu.
+    'management_loop: loop {
+        // We load the sessions every time the loop runs, so the list is always fresh.
+        let mut sessions = load_chat_sessions()?;
+        
+        let menu_items = &["Rename a chat session", "Delete a chat session", "Exit"];
+        let selection = Select::with_theme(&theme)
+            .with_prompt("Chat Management Menu")
+            .items(menu_items)
+            .default(0)
+            .interact()?;
+
+        match selection {
+            0 => { // RENAME A CHAT
+                if sessions.is_empty() {
+                    println!("No chats to rename.");
+                    continue; // Go back to the start of the loop
+                }
+                
+                let session_names: Vec<String> = sessions.iter().map(|(_, name)| name.clone()).collect();
+                let to_rename_index = Select::with_theme(&theme)
+                    .with_prompt("Which session do you want to rename?")
+                    .items(&session_names)
+                    .interact()?;
+
+                let (old_path, old_name) = &sessions[to_rename_index];
+
+                let new_name: String = Input::with_theme(&theme)
+                    .with_prompt("Enter the new name for the session")
+                    .default(old_name.strip_suffix(".json").unwrap_or(old_name).to_string())
+                    .interact_text()?;
+
+                // Basic validation for the new name
+                if new_name.trim().is_empty() || new_name.contains('/') || new_name.contains('\\') {
+                    eprintln!("Error: Invalid filename. Please avoid empty names and slashes.");
+                    continue;
+                }
+
+                // Ensure the new name ends with .json
+                let final_name = if new_name.ends_with(".json") {
+                    new_name
+                } else {
+                    format!("{}.json", new_name)
+                };
+
+                let new_path = old_path.with_file_name(final_name);
+                
+                // Perform the rename operation
+                fs::rename(old_path, &new_path)?;
+                println!("✅ Renamed '{}' to '{}'", old_name, new_path.file_name().unwrap().to_string_lossy());
+            }
+            1 => { // DELETE A CHAT
+                if sessions.is_empty() {
+                    println!("No chats to delete.");
+                    continue;
+                }
+                
+                let session_names: Vec<String> = sessions.iter().map(|(_, name)| name.clone()).collect();
+                
+                // Use dialoguer's `MultiSelect` to allow deleting multiple files at once.
+                let to_delete_indices = dialoguer::MultiSelect::with_theme(&theme)
+                    .with_prompt("Use SPACE to select chats to delete, ENTER to confirm")
+                    .items(&session_names)
+                    .interact()?;
+
+                if to_delete_indices.is_empty() {
+                    println!("No chats selected for deletion.");
+                } else if Confirm::with_theme(&theme)
+                    .with_prompt(format!("Are you sure you want to delete {} chat(s)? This cannot be undone.", to_delete_indices.len()))
+                    .interact()?
+                {
+                    for index in to_delete_indices.iter().rev() { // Reverse to handle index shifts correctly
+                        let (path, name) = &sessions[*index];
+                        fs::remove_file(path)?;
+                        println!("🗑️ Deleted chat: {}", name);
+                    }
+                } else {
+                    println!("Deletion cancelled.");
+                }
+            }
+            2 => { // EXIT
+                break 'management_loop;
+            }
+            _ => unreachable!(),
+        }
+    }
+    Ok(())
 }
 
 // Saves a chat session struct to its corresponding JSON file.
@@ -337,7 +434,6 @@ fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
     }
 }
 
-
 // Helper function to create a default config in memory
 fn create_default_config_in_memory() -> Config {
     toml::from_str(DEFAULT_CONFIG).expect("Failed to parse default config template.")
@@ -504,8 +600,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // First, handle the configuration case, which doesn't need to load anything.
     if cli.configure {
         handle_configure()?;
+        return Ok(()); // End the programm because the user just wanted to configure it -> No unexpected behavior.
     }
 
+    // check for our the management mode
+    if cli.manage_chats {
+        handle_chat_management()?;
+        return Ok(()); 
+    }
 
     let config = load_config()?;
 
