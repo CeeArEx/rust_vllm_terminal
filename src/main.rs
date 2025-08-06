@@ -182,7 +182,7 @@ fn manage_list(list: &mut Vec<String>, theme: &ColorfulTheme, prompt: &str) -> R
                     .with_prompt("Enter the new item")
                     .interact_text()?;
                 if !new_item.trim().is_empty() {
-                    list.push(new_item);
+                    list.push(new_item.trim().to_string());
                 }
             }
             1 => { // Remove an item
@@ -220,7 +220,10 @@ fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
     // Load existing config or create a new default one.
     // This is a bit different from load_config because we want to proceed with a default if it doesn't exist.
     let mut config = match fs::read_to_string(&config_path) {
-        Ok(content) => toml::from_str(&content).unwrap_or_else(|_| create_default_config_in_memory()),
+        Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {
+        eprintln!("Warning: Could not parse config file (error: {}). Starting with defaults.", e);
+        create_default_config_in_memory()
+    }),
         Err(_) => {
             println!("No existing configuration found. Starting with defaults.");
             create_default_config_in_memory()
