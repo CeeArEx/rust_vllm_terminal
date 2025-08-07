@@ -5,7 +5,7 @@ use futures::StreamExt;
 use std::io::{stdout, Write};
 use clap::Parser; // For using the CLI as interface
 use termimad::print_text; // For displaying markdown instead of plain text
-use dialoguer::{theme::ColorfulTheme, Input, Select, Confirm};
+use dialoguer::{theme::ColorfulTheme, Input, Select, Confirm, Editor};
 use std::path::{Path, PathBuf};
 use chrono::Local; // For generating timestamps for chat filenames.
 
@@ -491,12 +491,18 @@ fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
                     .interact()?;
             }
             4 => {
-                let current_prompt = config.system_prompt.clone().unwrap_or_default();
-                if let Ok(new_prompt) = Input::with_theme(&theme)
-                    .with_prompt("Enter the system prompt (leave empty for none)")
-                    .default(current_prompt)
-                    .interact_text() {
-                    config.system_prompt = if new_prompt.is_empty() { None } else { Some(new_prompt) };
+                let initial_text = config.system_prompt.as_deref().unwrap_or("");
+
+                println!("\nOpening your default editor to edit the prompt...");
+                println!("(Save and quit the editor to accept, or close without saving to cancel)");
+                
+                // 2. Call the editor. It does not take a prompt itself.
+                if let Some(new_prompt) = Editor::new().edit(initial_text)? {
+                    // This logic remains the same.
+                    config.system_prompt = if new_prompt.trim().is_empty() { None } else { Some(new_prompt) };
+                    println!("System prompt updated.");
+                } else {
+                    println!("Edit cancelled.");
                 }
             }
             // Handle the Advanced Options selection
