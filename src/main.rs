@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
+use futures::StreamExt;
+use std::io::{stdout, Write};
 use clap::Parser; // For using the CLI as interface
 use termimad::print_text; // For displaying markdown instead of plain text
 use dialoguer::{theme::ColorfulTheme, Input, Select, Confirm};
@@ -49,6 +51,8 @@ struct Config {
     top_k: i32,
     presence_penalty: f32,
     bad_words: Vec<String>,
+    #[serde(default)] // Defaults to false if not in the file
+    stream: bool,
 }
 
 // This is the template for our config file
@@ -78,6 +82,10 @@ top_k = 20
 presence_penalty = 2.0 
 # List of words that are not allowed to be generated. More precisely, only the last token of a corresponding token sequence is not allowed when the next generated token can complete the sequence.
 bad_words = []
+
+# --- Application Behavior ---
+# Set to true to receive the response token-by-token, false to wait for the full response.
+stream = true
 "#;
 
 // This tells Rust to automatically implement the `Deserialize` trait for these structs.
@@ -113,6 +121,103 @@ struct Usage {
     prompt_tokens: u32,
     completion_tokens: u32,
     total_tokens: u32,
+}
+
+// Structs for parsing streaming API responses 
+#[derive(Deserialize, Debug)]
+struct StreamChunk {
+    choices: Vec<StreamChoice>,
+}
+
+#[derive(Deserialize, Debug)]
+struct StreamChoice {
+    delta: StreamDelta,
+}
+
+#[derive(Deserialize, Debug)]
+struct StreamDelta {
+    // The content field is optional because the first/last chunks might not have it.
+    content: Option<String>,
+}
+
+// This function handles the entire streaming process.
+async fn send_api_request_stream(config: &Config, messages: &[Message]) -> Result<Message, Box<dyn std::error::Error>> {
+    let payload = json!({
+        "model": &config.model_name,
+        "messages": messages,
+        "temperature": config.temperature,
+        "max_tokens": config.max_tokens,
+        "top_p": config.top_p,
+        "min_p": config.min_p,
+        "top_k": config.top_k,
+        "presence_penalty": config.presence_penalty,
+        "bad_words": &config.bad_words,
+        "stream": true, // The crucial flag to enable streaming
+    });
+
+    let api_endpoint = format!("{}/chat/completions", config.api_url.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+
+    let res = client.post(&api_endpoint).json(&payload).send().await?;
+
+    // Check for failure status before trying to stream.
+    if !res.status().is_success() {
+        let status = res.status();
+        let error_body = res.text().await?;
+        return Err(format!("❌ Request failed with status {}: {}", status, error_body).into());
+    }
+
+    let mut stream = res.bytes_stream();
+    let mut full_response_content = String::new();
+
+    print!("\nAssistant: "); // Print the initial prompt for the assistant's response
+    stdout().flush()?; // MUST flush to make "Assistant: " appear immediately.
+
+    // Loop over the stream of byte chunks
+    while let Some(item) = stream.next().await {
+        let chunk = item?;
+        // SSE streams can send multiple events in one chunk, so we split by newline.
+        for line in chunk.split(|&b| b == b'\n') {
+            if line.starts_with(b"data: ") {
+                // Strip the "data: " prefix
+                let json_data = &line[6..];
+                // Skip empty data lines
+                if json_data.is_empty() { continue; }
+
+                // Check for the end-of-stream signal
+                if json_data == b"[DONE]" {
+                    break;
+                }
+                
+                // Try to parse the chunk into our streaming structs
+                match serde_json::from_slice::<StreamChunk>(json_data) {
+                    Ok(stream_chunk) => {
+                        if let Some(choice) = stream_chunk.choices.first() {
+                            if let Some(content) = &choice.delta.content {
+                                // Print the token to the screen immediately
+                                print!("{}", content);
+                                stdout().flush()?; // Crucial for token-by-token display
+                                // And add it to our full response string for saving later
+                                full_response_content.push_str(content);
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        // Silently ignore chunks that aren't valid JSON, as they might be metadata
+                    }
+                }
+            }
+        }
+    }
+    
+    println!(); // Add a final newline for clean formatting
+    
+    // Return a complete Message struct, just like the non-streaming function does.
+    // This allows us to save the chat history correctly.
+    Ok(Message {
+        role: "assistant".to_string(),
+        content: full_response_content,
+    })
 }
 
 // Filesystem and Configuration Functions
@@ -329,12 +434,26 @@ fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
 
     let theme = ColorfulTheme::default();
     loop {
+
+        let system_prompt_display = config.system_prompt.as_deref() // Get an Option<&str> from Option<String>
+            .map(|prompt| { // If the prompt exists...
+                const TRUNCATE_LIMIT: usize = 25; // Set our character limit
+                if prompt.chars().count() > TRUNCATE_LIMIT {
+                    // If it's too long, safely take the first 25 chars and add "..."
+                    format!("{}...", prompt.chars().take(TRUNCATE_LIMIT).collect::<String>())
+                } else {
+                    // Otherwise, just use the original string
+                    prompt.to_string()
+                }
+            })
+            .unwrap_or_else(|| "Not set".to_string()); // If prompt is None, use "Not set"
+
         let items = &[
             format!("1. API URL      : {}", config.api_url),
             format!("2. Model Name   : {}", config.model_name),
             format!("3. Temperature  : {}", config.temperature),
             format!("4. Max Tokens   : {}", config.max_tokens),
-            format!("5. System Prompt: {}", config.system_prompt.as_deref().unwrap_or("Not set")),
+            format!("5. System Prompt: {}", system_prompt_display),
             "6. Advanced Options...".to_string(),
             "7. Save and Exit".to_string(),    
             "8. Exit Without Saving".to_string(),
@@ -389,7 +508,8 @@ fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
                         format!("3. Top K             : {}", config.top_k),
                         format!("4. Presence Penalty  : {}", config.presence_penalty),
                         format!("5. Bad Words List    : [{}]", config.bad_words.join(", ")),
-                        "6. Return to Main Menu".to_string(),
+                        format!("6. Stream Mode : {}", config.stream),
+                        "7. Return to Main Menu".to_string(),
                     ];
 
                     let advanced_selection = Select::with_theme(&theme)
@@ -407,7 +527,8 @@ fn handle_configure() -> Result<bool, Box<dyn std::error::Error>> {
                             // Call our list management function
                             manage_list(&mut config.bad_words, &theme, "Manage Bad Words List")?;
                         },
-                        5 => break 'advanced_menu, 
+                        5 => config.stream = Input::with_theme(&theme).with_prompt("Enable streaming?").default(config.stream).interact()?,
+                        6 => break 'advanced_menu, 
                         _ => unreachable!(),
                     }
                 }
@@ -547,11 +668,17 @@ async fn handle_chat_mode(config: &Config) -> Result<(), Box<dyn std::error::Err
         });
 
         // The API call is now made with the entire history.
-        let response_message = send_api_request(config, &session.messages).await?;
-        
-        println!("\nAssistant:");
-        print_text(response_message.content.trim());
-        println!("\n"); // Add a newline for better spacing in the loop.
+        let response_message = if config.stream {
+            send_api_request_stream(config, &session.messages).await?
+        } else {
+            println!("\nAssistant:"); // We need to print this ourselves in non-streaming mode
+            send_api_request(config, &session.messages).await?
+        };
+
+        if !config.stream {
+            print_text(response_message.content.trim());
+            println!("\n");
+        }
 
         // Add assistant's response to history and save the whole session to disk.
         session.messages.push(response_message);
@@ -597,18 +724,17 @@ async fn send_api_request(config: &Config, messages: &[Message]) -> Result<Messa
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    // First, handle the configuration case, which doesn't need to load anything.
+    // First, handle the utility modes which exit immediately.
     if cli.configure {
         handle_configure()?;
-        return Ok(()); // End the programm because the user just wanted to configure it -> No unexpected behavior.
+        return Ok(());
     }
-
-    // check for our the management mode
     if cli.manage_chats {
         handle_chat_management()?;
-        return Ok(()); 
+        return Ok(());
     }
 
+    // Load the configuration. This will only run if no utility flags were used.
     let config = load_config()?;
 
     if cli.chat {
@@ -616,7 +742,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         handle_chat_mode(&config).await?;
 
     } else if let Some(prompt) = cli.prompt {
-        // SINGLE PROMPT MODE
         println!("🚀 Sending request...");
         
         let mut messages = Vec::new();
@@ -633,11 +758,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             content: prompt,
         });
 
-        match send_api_request(&config, &messages).await {
+        // Decide which function to call based on the config flag
+        let result = if config.stream {
+            send_api_request_stream(&config, &messages).await
+        } else {
+            send_api_request(&config, &messages).await
+        };
+
+        // Handle the result from whichever function was called
+        match result {
             Ok(response_message) => {
-                println!("\nAssistant: ");
-                print_text(response_message.content.trim());
-                println!();
+                // If we were NOT streaming, we need to print the final response.
+                // The streaming function already printed its output token-by-token.
+                if !config.stream {
+                    println!("\nAssistant: ");
+                    print_text(response_message.content.trim());
+                    println!();
+                }
             }
             Err(e) => {
                 eprintln!("{}", e); // Print errors to stderr.
