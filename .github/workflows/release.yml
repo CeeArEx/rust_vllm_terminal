@@ -21,6 +21,10 @@ jobs:
     # 'ubuntu-latest' ist perfekt für unser .deb-Paket.
     runs-on: ubuntu-latest
 
+    # Gib dem Job die Berechtigung, Releases zu erstellen (schreiben).
+    permissions:
+      contents: write
+
     # Die einzelnen Schritte, die nacheinander ausgeführt werden.
     steps:
       # 1. Code auschecken
