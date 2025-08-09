@@ -1,0 +1,54 @@
+# Name des Workflows, der in der "Actions"-Ansicht von GitHub angezeigt wird
+name: Release Debian Package
+
+# Dieser Abschnitt definiert, wann der Workflow ausgeführt wird.
+# Hier: Bei jedem Push eines Tags, der mit 'v' beginnt (z.B. v0.1.0, v1.2.3)
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Umgebungsvariablen, die für alle Jobs verfügbar sind.
+# CARGO_TERM_COLOR=always sorgt für farbige Ausgaben von Cargo im Log.
+env:
+  CARGO_TERM_COLOR: always
+
+# Definiert die Jobs, die ausgeführt werden. Wir haben nur einen Job.
+jobs:
+  # Der Name des Jobs
+  create-release:
+    # Der Typ des virtuellen Rechners, auf dem der Job laufen soll.
+    # 'ubuntu-latest' ist perfekt für unser .deb-Paket.
+    runs-on: ubuntu-latest
+
+    # Die einzelnen Schritte, die nacheinander ausgeführt werden.
+    steps:
+      # 1. Code auschecken
+      # Lädt den Code deines Repositories auf den Runner.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Rust Toolchain installieren
+      # Verwendet eine beliebte Action, um die stabile Version von Rust zu installieren.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # 3. cargo-deb installieren
+      # Installiert das Werkzeug, das wir zum Bauen des Pakets benötigen.
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      # 4. Das .deb-Paket bauen
+      # Führt den Build-Befehl aus.
+      - name: Build Debian package
+        run: cargo deb
+
+      # 5. Release erstellen und Artefakt hochladen
+      # Dies ist der magische Schritt. Diese Action erstellt einen Release
+      # und lädt Dateien hoch, die du angibst.
+      - name: Create Release and Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          # Sucht nach allen .deb-Dateien im angegebenen Verzeichnis und lädt sie hoch.
+          # Der Stern (*) ist ein Platzhalter für den versionsspezifischen Dateinamen.
+          files: target/debian/*.deb
