@@ -93,7 +93,6 @@ stream = true
 #[derive(Deserialize, Debug)]
 struct ApiResponse {
     choices: Vec<Choice>,
-    usage: Usage,
 }
 
 #[derive(Deserialize, Debug)]
@@ -114,13 +113,6 @@ struct Message {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct ChatSession {
     messages: Vec<Message>,
-}
-
-#[derive(Deserialize, Debug)] 
-struct Usage {
-    prompt_tokens: u32,
-    completion_tokens: u32,
-    total_tokens: u32,
 }
 
 // Structs for parsing streaming API responses 
