@@ -10,10 +10,12 @@
     A blazingly fast, feature-rich, and user-friendly command-line interface for interacting with <a href="https://github.com/vllm-project/vllm">vLLM</a> servers, right from your terminal.
   </p>
   <p>
-    <a href="https://github.com/CeeArEx/rust_vllm_terminal/actions/workflows/rust.yml"><img src="https://img.shields.io/github/actions/workflow/status/CeeArEx/rust_vllm_terminal/rust.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white" alt="Build Status"></a>
-    <a href="https://github.com/CeeArEx/rust_vllm_terminal/releases"><img src="https://img.shields.io/github/v/release/CeeArEx/rust_vllm_terminal?style=for-the-badge&logo=github&color=blue" alt="Latest Release"></a>
+
+<img src="https://img.shields.io/github/last-commit/CeeArEx/rust_vllm_terminal?style=for-the-badge" alt="Last Commit">
+<img src="https://img.shields.io/badge/platform-linux%20%7C%20windows-blue?style=for-the-badge" alt="Platform">
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-informational?style=for-the-badge" alt="License: MIT"></a>
     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Made%20with-Rust-orange?style=for-the-badge&logo=rust" alt="Made with Rust"></a>
+    <img src="https://img.shields.io/github/languages/code-size/CeeArEx/rust_vllm_terminal?style=for-the-badge" alt="Code Size">
   </p>
 </div>
 
